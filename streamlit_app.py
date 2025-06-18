@@ -102,7 +102,7 @@ if "messages" not in st.session_state:
 
 # Chat input
 user_prompt = st.text_input("輸入你想研究的財經M平方圖表名稱或關鍵字", placeholder="例如：小台散戶、柯博文指數、美債殖利率vs基準利率")
-submit_button = st.button("✨生成圖表", type="primary")
+submit_button = st.button("✨生成圖表", type="primary", disabled=not user_prompt.strip())
 
 if user_prompt and submit_button:
     # Add user message to chat history
