@@ -55,7 +55,7 @@ if "messages" not in st.session_state:
 #         st.markdown(message["content"])
 
 # Chat input
-user_prompt = st.text_input("你想怎麼研究財經M平方的數據及圖表？", placeholder="例如：2025全球人口畫成圓餅圖")
+user_prompt = st.text_input("你想怎麼研究財經M平方的數據及圖表？", placeholder="例如：2025台灣人口結構，以圓餅圖呈現")
 submit_button = st.button("✨生成圖表", type="primary")
 
 if user_prompt and submit_button:
@@ -99,14 +99,14 @@ if user_prompt and submit_button:
         retrieval = json.dumps(retrieval, ensure_ascii=False)
 
     with st.spinner("🎨 正在生成圖表程式碼..."):
-        system_prompt = 'Given retrieval data below, customized by user input, generate Highchart HTML/JS/CSS source code which has a button to push to call the series API to get the complete series data from the frontend and a button to visit MM Chart reference. Write the code line by line, without any code comments. Output only the Highchart HTML/JS/CSS source code.\n\n' + retrieval
+        system_prompt = 'Retrieval data is as below. Customized by user input, generate Highchart HTML/JS/CSS source code which calls the series API to get the complete series replacing sample series and has a button link to MM Chart reference. Write the code in multilines without code comments. Output only the Highchart HTML/JS/CSS source code.\n\n' + retrieval
         model = thinking_model
         response_type = 'application/json'
         response_schema = types.Schema(type = genai.types.Type.STRING)
         tools = None
         response = generate_content(model, user_prompt, system_prompt, response_type, response_schema, tools)
-        response_parsed = response.parsed
-        print(response_parsed)
+        highchart_code = response.parsed
+        print(highchart_code)
         
         # Extract tokens from second API call
         tokens = extract_tokens(response.usage_metadata)
@@ -115,7 +115,7 @@ if user_prompt and submit_button:
 
     st.success("✅ 圖表生成完成！（若有 🐛 就再試一次吧）")
     
-    components.html(response_parsed, height=700)
+    components.html(highchart_code, height=700)
 
 # Display token count and cost in sidebar
 with st.sidebar:
