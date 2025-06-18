@@ -85,7 +85,7 @@ def generate_content(model, user_prompt, system_prompt, response_type, response_
     )
     return response
 
-st.title("MM AI Charting 📈📊🍕")
+st.title("MM AI Charting ![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png)✨📈")
 
 # Initialize session state for current request tokens
 if "current_request_tokens" not in st.session_state:

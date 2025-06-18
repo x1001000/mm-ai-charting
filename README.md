@@ -1,4 +1,4 @@
-# MM AI Charting 📈📊🍕
+# MM AI Charting ![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png)✨📈
 
 An AI-powered financial charting application that helps users search and generate interactive charts from MacroMicro (MM) financial data using Gemini AI.
 
