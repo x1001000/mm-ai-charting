@@ -56,7 +56,7 @@ for content in st.session_state.contents:
         st.markdown(content.parts[0].text)
 
 # Chat input
-prompt = st.chat_input("您上傳的時間序列，想和什麼數據一起呈現？試試：台北房價", accept_file=True, file_type=["csv"])
+prompt = st.chat_input("您上傳的時間序列，想和什麼MM總經數據一起呈現？試試：台幣", accept_file=True, file_type=["csv"])
 if prompt and prompt.text:
     user_prompt = prompt.text
     with st.chat_message("user"):
@@ -77,8 +77,8 @@ if st.session_state.df is not None:
     if st.button("✅ 確認數據並生成圖表", type="primary"):
         if "data_editor" in st.session_state and st.session_state.data_editor is not None:
             # Save edited data to CSV
-            st.session_state.df.to_csv("additional_time_series.csv", index=False)
-            st.success("📁 已保存編輯後的數據到 additional_time_series.csv")
+            st.session_state.df.to_csv("uploaded_series.csv", index=False)
+            st.success("📁 已保存編輯後的數據到 uploaded_series.csv")
             # Loading UI
             with st.spinner("🔍 正在搜尋相關圖表..."):
                 model = thinking_model
@@ -106,11 +106,13 @@ if st.session_state.df is not None:
                 )
                 import json
                 chart_info = json.loads(chart_info_output)
-                sample_series = json.loads(sample_series_output)
+                series_sample = json.loads(sample_series_output)
                 del chart_info['description_en'] # avoid single quote in description_en causing error in text generation
+                series_configs = chart_info['chart_config']['seriesConfigs']
                 retrieval = {
-                    "chart_info": chart_info,
-                    "sample_series": sample_series,
+                    # "chart_info": chart_info,
+                    "series_configs": series_configs,
+                    "series_sample": series_sample,
                     "series_api": series_api_output,
                     # "MM Chart reference": f"[{chart_info['name_tc']}](https://www.macromicro.me/charts/{chart_id}/{chart_info['slug']})"
                 }
@@ -120,17 +122,13 @@ if st.session_state.df is not None:
             with st.spinner("✍️ 正在撰寫 Plotly 程式..."):
                 # system_prompt = 'Retrieval data is as below. Customized by user input, generate Highchart HTML/JS/CSS source code which calls the series API to get the full series replacing sample series and has a button link to MM Chart reference. Write the code in multilines without code comments. Output only the Highchart HTML/JS/CSS source code.\n\n' +\
                 #     json.dumps(retrieval, ensure_ascii=False)
-                system_prompt = """You are tasked with creating a Python module that generates a Plotly chart. Your module should:
+                system_prompt = """You are tasked with coding a Python module that plots a Plotly chart. Your module should:
 
 1. Use the retrieval data provided below for chart context and configuration
-2. Fetch full time series data from the series_api (replacing the sample_series in the retrieval data with full series)
-3. Load additional time series data from 'additional_time_series.csv'
-4. Create a Plotly chart that combines:
-   - The full series data from the API
-   - The user's additional time series from CSV
-   - Customizations based on the user's specific request
-
-Your main() function should use streamlit.plotly_chart(fig) to display the final chart.
+2. Fetch full series data by requests.get the series_api and replace the series_sample in the retrieval data
+3. pandas.read_csv('uploaded_series.csv') into a DataFrame variable named `user_series_df` and add into the chart together with the full series
+4. Code this Plotly chart that combines points mentioned above and customizations based on user input text prompt
+5. Your main() function should use streamlit.plotly_chart(fig) to display the chart.
 
 Retrieval data:
 """ + json.dumps(retrieval, ensure_ascii=False)
