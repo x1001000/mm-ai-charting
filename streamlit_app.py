@@ -100,13 +100,13 @@ if st.session_state.df is not None:
                     st.session_state.current_request_tokens[key] += tokens[key]
 
             with st.spinner("⚙️ 正在載入圖表配置..."):
-                chart_info_output, sample_series_output, series_api_output= st.session_state.gradio_client.predict(
+                chart_info_output, series_sample_output, series_api_output= st.session_state.gradio_client.predict(
                         chart_id=chart_id,
                         api_name="/get_one_chart"
                 )
                 import json
                 chart_info = json.loads(chart_info_output)
-                series_sample = json.loads(sample_series_output)
+                series_sample = json.loads(series_sample_output)
                 del chart_info['description_en'] # avoid single quote in description_en causing error in text generation
                 series_configs = chart_info['chart_config']['seriesConfigs']
                 retrieval = {
