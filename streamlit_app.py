@@ -1,11 +1,13 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
+import json
 
 from gradio_client import Client
 if 'gradio_client' not in st.session_state:
     st.session_state.gradio_client = Client(st.secrets['CHART_DATA_API'])
     st.session_state.charts = st.session_state.gradio_client.predict(api_name="/get_all_charts")
+    st.session_state.charts_list = json.loads(st.session_state.charts)
 
 from google import genai
 from google.genai import types
@@ -17,10 +19,11 @@ price = {
     'gemini-2.5-pro': {'input': 1.25, 'output': 10, 'thinking': 10, 'caching': 0.31},
 }
 
-import json
 import system_prompts
 import importlib
 import sys
+import random
+chart_name = random.choice(st.session_state.charts_list)['name_tc']
 
 def extract_tokens(usage_metadata):
     d = usage_metadata.model_dump()
@@ -40,7 +43,7 @@ def generate_chart(user_query, has_csv_data=False):
     retrieval = '- series_api is not available.'
     if user_query:
         # Find relevant chart
-        with st.spinner("🔍 正在搜尋相關MM圖表..."):
+        with st.spinner("🔍 正在檢索相關MM圖表..."):
             response = client.models.generate_content(
                 model=finder_model,
                 contents=user_query,
@@ -63,7 +66,7 @@ def generate_chart(user_query, has_csv_data=False):
 
         if chart_id and chart_id.isdigit():
             # Load chart configuration
-            with st.spinner("⚙️ 正在載入MM圖表配置..."):
+            with st.spinner("⚙️ 正在處理MM圖表序列資料..."):
                 chart_info_output, series_sample_output, series_api_output = st.session_state.gradio_client.predict(
                         chart_id=chart_id,
                         api_name="/get_one_chart"
@@ -143,7 +146,7 @@ for content in st.session_state.contents:
         st.markdown(content.parts[0].text)
 
 # Chat input
-prompt = st.chat_input("您上傳的時間序列，想和什麼MM總經數據一起呈現？試試：台幣", accept_file=True, file_type=["csv"])
+prompt = st.chat_input(f"您上傳的CSV（第一欄日期），想和什麼MM總經數據一起呈現？試試：{chart_name}", accept_file=True, file_type=["csv"])
 if prompt and prompt.text:
     user_prompt = prompt.text
     with st.chat_message("user"):
@@ -211,7 +214,7 @@ if hasattr(st.session_state, 'chart_ready') and st.session_state.chart_ready:
             import plotly_module
         plotly_module.main()
         if st.session_state.chart_info:
-            st.markdown('### Reference：')
+            '相關MM圖表'
             st.link_button(st.session_state.chart_info['name_tc'], 
                          url=f"https://www.macromicro.me/charts/{st.session_state.chart_id}/{st.session_state.chart_info['slug']}", 
                          icon="📊")
