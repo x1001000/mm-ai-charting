@@ -10,14 +10,17 @@ if 'gradio_client' not in st.session_state:
 from google import genai
 from google.genai import types
 client = genai.Client(api_key=st.secrets['GEMINI_API_KEY'])
-thinking_model = 'gemini-2.5-flash' # nonthinking model is stupid af
+finder_model = 'gemini-2.5-flash'
+writer_model = 'gemini-2.5-pro'
 price = {
     'gemini-2.5-flash': {'input': 0.3, 'output': 2.5, 'thinking': 2.5, 'caching': 0.075},
-    'gemini-2.5-pro-preview-06-05': {'input': 1.25, 'output': 10, 'thinking': 10, 'caching': 0.31},
+    'gemini-2.5-pro': {'input': 1.25, 'output': 10, 'thinking': 10, 'caching': 0.31},
 }
 
 import json
 import system_prompts
+import importlib
+import sys
 
 def extract_tokens(usage_metadata):
     d = usage_metadata.model_dump()
@@ -28,22 +31,27 @@ def extract_tokens(usage_metadata):
     return result
 
 def calculate_cost(tokens, model_name):
-    return round((tokens['prompt_tokens'] * price[model_name]['input'] + tokens['candidates_tokens'] * price[model_name]['output'] + tokens['thoughts_tokens'] * price[model_name]['thinking'])/1e6, 3)
+    return round((tokens.get('prompt_tokens', 0) * price[model_name]['input'] + tokens.get('candidates_tokens', 0) * price[model_name]['output'] + tokens.get('thoughts_tokens', 0) * price[model_name]['thinking'])/1e6, 3)
 
 def generate_chart(user_query, has_csv_data=False):
+    st.session_state.current_request_cost = 0
+    chart_info = None
+    chart_id = None
     if user_query:
         # Find relevant chart
         with st.spinner("🔍 正在搜尋相關MM圖表..."):
             response = client.models.generate_content(
-                model=thinking_model,
+                model=finder_model,
                 contents=user_query,
                 config=types.GenerateContentConfig(
                     system_instruction='Find the most relevant chart id for the user query. Output the id.\n\n' + st.session_state.charts,
                     response_mime_type='application/json',
                     response_schema=types.Schema(type = genai.types.Type.STRING),
                     tools=None,
+                    temperature=0.2,
                 )
             )
+
             chart_id = response.parsed
             print(chart_id)
             if not chart_id.isdigit():
@@ -52,6 +60,7 @@ def generate_chart(user_query, has_csv_data=False):
 
             # Extract tokens from first API call
             tokens = extract_tokens(response.usage_metadata)
+            st.session_state.current_request_cost += calculate_cost(tokens, finder_model)
             for key in tokens:
                 st.session_state.current_request_tokens[key] += tokens[key]
 
@@ -83,16 +92,24 @@ def generate_chart(user_query, has_csv_data=False):
     # Generate chart code
     with st.spinner("✍️ 正在撰寫 Plotly 程式..."):
         response = client.models.generate_content(
-            model=thinking_model,
+            model=writer_model,
             contents=user_query,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 response_mime_type='application/json',
-                response_schema=types.Schema(type = genai.types.Type.STRING),
+                response_schema=genai.types.Schema(
+                    type = genai.types.Type.OBJECT,
+                    properties = {
+                        "plotly_module": genai.types.Schema(
+                            type = genai.types.Type.STRING,
+                        ),
+                    },
+                ),
                 tools=None,
+                temperature=0.2,
             )
         )
-        plotly_module = response.parsed
+        plotly_module = response.parsed['plotly_module']
         plotly_module = plotly_module.replace('\\n', '\n')
         plotly_module = plotly_module.replace('```python', '').replace('```', '')
         with open('plotly_module.py', 'w') as f:
@@ -100,19 +117,23 @@ def generate_chart(user_query, has_csv_data=False):
         
         # Extract tokens from second API call
         tokens = extract_tokens(response.usage_metadata)
+        st.session_state.current_request_cost += calculate_cost(tokens, writer_model)
         for key in tokens:
             st.session_state.current_request_tokens[key] += tokens[key]
 
-    st.success("✅ 客製化圖表繪製完成！（若出現 Error 或有 🐛 就再按一次吧）")
+    st.success("✅ 圖表繪製完成！（若出現 Error 或有 🐛 就再按一次吧）")
     st.session_state.chart_ready = True
     st.session_state.chart_info = chart_info
     st.session_state.chart_id = chart_id
 
-st.title("MM AI Charting ![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png)✨📈")
+'![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png)✨📈👩🏻‍🔬'
+st.title("MM AI Charting Lab")
 
 # Initialize session state for current request tokens
 if "current_request_tokens" not in st.session_state:
     st.session_state.current_request_tokens = {'prompt_tokens': 0, 'candidates_tokens': 0, 'cached_content_tokens': 0, 'thoughts_tokens': 0, 'tool_use_prompt_tokens': 0, 'total_tokens': 0}
+if "current_request_cost" not in st.session_state:
+    st.session_state.current_request_cost = 0
 
 # initialize
 if 'contents' not in st.session_state:
@@ -161,6 +182,9 @@ if st.session_state.df is not None: # The truth value of a DataFrame is ambiguou
 
 # Display token count and cost in sidebar
 with st.sidebar:
+            st.header("🧠")
+            st.metric('MM Chart finder model', finder_model)
+            st.metric('Plotly Code writer model', writer_model)
             st.header("✨")
             col1, col2 = st.columns(2)
             with col1:
@@ -177,13 +201,16 @@ with st.sidebar:
                 pass
             with col2:
                 st.header("💰")
-                request_cost = calculate_cost(st.session_state.current_request_tokens, thinking_model)
-                st.metric("Cost", f"${request_cost}")
+                st.metric("Cost", f"${st.session_state.current_request_cost:.3f}")
 
 # Display chart if ready
 if hasattr(st.session_state, 'chart_ready') and st.session_state.chart_ready:
     try:
         import plotly_module
+        if 'plotly_module' in sys.modules:
+            importlib.reload(sys.modules['plotly_module'])
+        else:
+            import plotly_module
         plotly_module.main()
         if st.session_state.chart_info:
             st.markdown('### Reference：')
