@@ -23,9 +23,10 @@ def main():
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         trace_count = 0
         all_dates = pd.to_datetime([])
+        bright_colors = ['#FF6B6B', '#6BFFB8', '#6B8BFF', '#FFD16B', '#FF6BF0', '#6BFFF0']
         for i, series in enumerate(dfs):
             fig.add_trace(
-                go.Scatter(x=series.index, y=series, name=series.name),
+                go.Scatter(x=series.index, y=series, name=series.name, line=dict(color=bright_colors[i % len(bright_colors)])),
                 secondary_y=trace_count % 2 != 0
             )
             trace_count += 1
@@ -78,10 +79,11 @@ def main():
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         trace_count = 0
         all_dates = pd.to_datetime([])
+        bright_colors = ['#FF6B6B', '#6BFFB8', '#6B8BFF', '#FFD16B', '#FF6BF0', '#6BFFF0']
         for i, df_series in enumerate(dfs):
             for col in df_series.columns:
                 fig.add_trace(
-                    go.Scatter(x=df_series.index, y=df_series[col], name=col),
+                    go.Scatter(x=df_series.index, y=df_series[col], name=col, line=dict(color=bright_colors[i % len(bright_colors)])),
                     secondary_y=trace_count % 2 != 0
                 )
                 trace_count += 1
@@ -147,18 +149,19 @@ def main():
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         trace_count = 0
         all_dates = pd.to_datetime([])
+        bright_colors = ['#FF6B6B', '#6BFFB8', '#6B8BFF', '#FFD16B', '#FF6BF0', '#6BFFF0']
         for i, series in enumerate(dfs):
             if isinstance(series, pd.DataFrame):
                  for col in series.columns:
                     fig.add_trace(
-                        go.Scatter(x=series.index, y=series[col], name=col),
+                        go.Scatter(x=series.index, y=series[col], name=col, line=dict(color=bright_colors[i % len(bright_colors)])),
                         secondary_y=trace_count % 2 != 0
                     )
                     trace_count += 1
                     all_dates = all_dates.union(series.index)
             else: # it's a series
                 fig.add_trace(
-                    go.Scatter(x=series.index, y=series, name=series.name),
+                    go.Scatter(x=series.index, y=series, name=series.name, line=dict(color=bright_colors[i % len(bright_colors)])),
                     secondary_y=trace_count % 2 != 0
                 )
                 trace_count += 1

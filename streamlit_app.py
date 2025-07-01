@@ -37,6 +37,7 @@ def generate_chart(user_query, has_csv_data=False):
     st.session_state.current_request_cost = 0
     chart_info = None
     chart_id = None
+    retrieval = '- series_api is not available.'
     if user_query:
         # Find relevant chart
         with st.spinner("🔍 正在搜尋相關MM圖表..."):
@@ -51,12 +52,8 @@ def generate_chart(user_query, has_csv_data=False):
                     temperature=0.2,
                 )
             )
-
             chart_id = response.parsed
             print(chart_id)
-            if not chart_id.isdigit():
-                st.error('Houston, we have a problem.', icon="🚨")
-                st.stop()
 
             # Extract tokens from first API call
             tokens = extract_tokens(response.usage_metadata)
@@ -64,22 +61,23 @@ def generate_chart(user_query, has_csv_data=False):
             for key in tokens:
                 st.session_state.current_request_tokens[key] += tokens[key]
 
-        # Load chart configuration
-        with st.spinner("⚙️ 正在載入MM圖表配置..."):
-            chart_info_output, series_sample_output, series_api_output = st.session_state.gradio_client.predict(
-                    chart_id=chart_id,
-                    api_name="/get_one_chart"
-            )
-            chart_info = json.loads(chart_info_output)
-            series_sample = json.loads(series_sample_output)
-            del chart_info['description_en']
-            series_names = [series_config['stats'][0]['name_en'] for series_config in chart_info['chart_config']['seriesConfigs']]
-            retrieval = {
-                "series_names": series_names,
-                "series_api": series_api_output,
-            }
-            from pprint import pprint
-            pprint(retrieval)
+        if chart_id and chart_id.isdigit():
+            # Load chart configuration
+            with st.spinner("⚙️ 正在載入MM圖表配置..."):
+                chart_info_output, series_sample_output, series_api_output = st.session_state.gradio_client.predict(
+                        chart_id=chart_id,
+                        api_name="/get_one_chart"
+                )
+                chart_info = json.loads(chart_info_output)
+                series_sample = json.loads(series_sample_output)
+                del chart_info['description_en']
+                series_names = [series_config['stats'][0]['name_en'] for series_config in chart_info['chart_config']['seriesConfigs']]
+                retrieval = {
+                    "series_names": series_names,
+                    "series_api": series_api_output,
+                }
+                from pprint import pprint
+                pprint(retrieval)
 
     # TT, TF, FT : 3 modes
     if user_query and has_csv_data:
