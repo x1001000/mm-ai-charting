@@ -32,9 +32,12 @@ def main():
             trace_count += 1
             all_dates = all_dates.union(series.index)
 
+        dark_mode = st.sidebar.toggle("Dark Mode", True)
+        template = 'plotly_dark' if dark_mode else 'none'
+
         fig.update_layout(
             title_text='Custom Chart from Uploaded Data',
-            template='plotly_dark',
+            template=template,
             legend_title_text='Series',
             yaxis=dict(autorange=True),
             yaxis2=dict(autorange=True)
@@ -89,9 +92,12 @@ def main():
                 trace_count += 1
                 all_dates = all_dates.union(df_series.index)
 
+        dark_mode = st.sidebar.toggle("Dark Mode", True)
+        template = 'plotly_dark' if dark_mode else 'none'
+
         fig.update_layout(
             title_text='MacroMicro Data Chart',
-            template='plotly_dark',
+            template=template,
             legend_title_text='Series',
             yaxis=dict(autorange=True),
             yaxis2=dict(autorange=True)
@@ -168,9 +174,12 @@ def main():
                 all_dates = all_dates.union(series.index)
 
 
+        dark_mode = st.sidebar.toggle("Dark Mode", True)
+        template = 'plotly_dark' if dark_mode else 'none'
+
         fig.update_layout(
             title_text='MacroMicro and Uploaded Data Chart',
-            template='plotly_dark',
+            template=template,
             legend_title_text='Series',
             yaxis=dict(autorange=True),
             yaxis2=dict(autorange=True)
