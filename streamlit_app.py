@@ -146,7 +146,7 @@ for content in st.session_state.contents:
         st.markdown(content.parts[0].text)
 
 # Chat input
-prompt = st.chat_input(f"您上傳的CSV（第一欄為日期、第一列為序列名稱），想和什麼MM總經圖表數據一起呈現？試試：{chart_name}", accept_file=True, file_type=["csv"])
+prompt = st.chat_input(f"您上傳的CSV（第一欄為日期、第一列為序列名稱），想和什麼MM總經圖表數據一起呈現？試試：{chart_name}", key='chat_input', accept_file=True, file_type=["csv"])
 if prompt and prompt.text:
     user_prompt = prompt.text
     with st.chat_message("user"):
