@@ -122,7 +122,7 @@ def generate_chart(user_query, has_csv_data=False):
         for key in tokens:
             st.session_state.current_request_tokens[key] += tokens[key]
 
-    st.success("✅ 圖表繪製完成！（若出現 Error 或有 🐛 就再按一次吧）")
+    st.success("✅ 圖表繪製完成！（若有 🐛 就再按一次按鈕或再下一次 prompt 吧）")
     st.session_state.chart_ready = True
     st.session_state.chart_info = chart_info
     st.session_state.chart_id = chart_id
@@ -206,7 +206,7 @@ with st.sidebar:
 
 # Display chart if ready
 if hasattr(st.session_state, 'chart_ready') and st.session_state.chart_ready:
-    with st.expander("View Generated Code"):
+    with st.expander("檢視 AI 生成的 Plotly 程式碼", expanded=False):
         with open('plotly_module.py', 'r') as f:
             import re
             st.code(re.sub(r'(https?://).*(.)', r'\1🙈🙈🙈🙈\2', f.read()), language='python')
@@ -218,7 +218,7 @@ if hasattr(st.session_state, 'chart_ready') and st.session_state.chart_ready:
             import plotly_module
         plotly_module.main()
         if st.session_state.chart_info:
-            '相關MM圖表'
+            st.markdown('MacroMicro 相關圖表')
             st.link_button(st.session_state.chart_info['name_tc'], 
                          url=f"https://www.macromicro.me/charts/{st.session_state.chart_id}/{st.session_state.chart_info['slug']}", 
                          icon="📊")
