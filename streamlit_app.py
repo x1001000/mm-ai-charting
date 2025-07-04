@@ -206,6 +206,10 @@ with st.sidebar:
 
 # Display chart if ready
 if hasattr(st.session_state, 'chart_ready') and st.session_state.chart_ready:
+    with st.expander("View Generated Code"):
+        with open('plotly_module.py', 'r') as f:
+            import re
+            st.code(re.sub(r'(https?://).*(.)', r'\1🙈🙈🙈🙈\2', f.read()), language='python')
     try:
         import plotly_module
         if 'plotly_module' in sys.modules:
