@@ -1,13 +1,19 @@
 import streamlit as st
-import streamlit.components.v1 as components
+import streamlit_highcharts as hct
 import pandas as pd
 import json
+import random
+import requests
 
-from gradio_client import Client
-if 'gradio_client' not in st.session_state:
-    st.session_state.gradio_client = Client(st.secrets['CHART_DATA_API'])
-    st.session_state.charts = st.session_state.gradio_client.predict(api_name="/get_all_charts")
-    st.session_state.charts_list = json.loads(st.session_state.charts)
+@st.cache_data  # 👈 Add the caching decorator
+def load_data(url):
+    df = pd.read_csv(url)
+    return df
+
+if 'random_chart' not in st.session_state:
+    df = load_data(st.secrets['CHARTS_DATA_CSV'])
+    st.session_state.charts = df.iloc[:,:2].to_json(orient='records', force_ascii=False)
+    st.session_state.random_chart = random.choice(df['name_tc'])
 
 from google import genai
 from google.genai import types
@@ -22,8 +28,6 @@ price = {
 import system_prompts
 import importlib
 import sys
-import random
-chart_name = random.choice(st.session_state.charts_list)['name_tc']
 
 def extract_tokens(usage_metadata):
     d = usage_metadata.model_dump()
@@ -67,65 +71,72 @@ def generate_chart(user_query, has_csv_data=False):
         if chart_id and chart_id.isdigit():
             # Load chart configuration
             with st.spinner("⚙️ 正在處理MM圖表序列資料..."):
-                chart_info_output, series_sample_output, series_api_output = st.session_state.gradio_client.predict(
-                        chart_id=chart_id,
-                        api_name="/get_one_chart"
-                )
-                chart_info = json.loads(chart_info_output)
-                series_sample = json.loads(series_sample_output)
-                del chart_info['description_en']
-                series_names = [series_config['stats'][0]['name_en'] for series_config in chart_info['chart_config']['seriesConfigs']]
-                retrieval = {
-                    "series_names": series_names,
-                    "series_api": series_api_output,
-                }
-                from pprint import pprint
-                pprint(retrieval)
+                r = requests.get(f"{st.secrets['CHARTS_DATA_API']}/{chart_id}")
+                d = r.json()
+                chart_info = d['data'][f'c:{chart_id}']['info']
+                series_data = d['data'][f'c:{chart_id}']['series']
+                series_names = [series_config['stats'][0]['name_tc'] for series_config in chart_info['chart_config']['seriesConfigs']]
+                series = []
+                for name, data in zip(series_names, series_data):
+                    s = dict()
+                    s['name'] = name
+                    s['data'] = data
+                    series.append(s)
 
-    # TT, TF, FT : 3 modes
-    if user_query and has_csv_data:
-        system_prompt = system_prompts.api_csv + f"\n\n{json.dumps(retrieval, ensure_ascii=False)}"
-    elif user_query and not has_csv_data:
-        system_prompt = system_prompts.api_only + f"\n\n{json.dumps(retrieval, ensure_ascii=False)}"
-    else:
-        system_prompt = system_prompts.csv_only
+    # # TT, TF, FT : 3 modes
+    # if user_query and has_csv_data:
+    #     system_prompt = system_prompts.api_csv + f"\n\n{json.dumps(retrieval, ensure_ascii=False)}"
+    # elif user_query and not has_csv_data:
+    #     system_prompt = system_prompts.api_only + f"\n\n{json.dumps(retrieval, ensure_ascii=False)}"
+    # else:
+    #     system_prompt = system_prompts.csv_only
 
     # Generate chart code
     with st.spinner("✍️ 正在撰寫 Plotly 程式..."):
-        response = client.models.generate_content(
-            model=writer_model,
-            contents=user_query,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                response_mime_type='application/json',
-                response_schema=genai.types.Schema(
-                    type = genai.types.Type.OBJECT,
-                    properties = {
-                        "plotly_module": genai.types.Schema(
-                            type = genai.types.Type.STRING,
-                        ),
-                    },
-                ),
-                tools=None,
-                temperature=0.2,
-            )
-        )
-        plotly_module = response.parsed['plotly_module']
-        plotly_module = plotly_module.replace('\\n', '\n')
-        plotly_module = plotly_module.replace('```python', '').replace('```', '')
-        with open('plotly_module.py', 'w') as f:
-            f.write(plotly_module)
+        options = {
+            'chart': {
+                'type': 'spline'
+            },
+            'title': {
+                'text': 'Snow depth at Vikjafjellet, Norway'
+            },
+            'series': series,
+        }
+        # response = client.models.generate_content(
+        #     model=writer_model,
+        #     contents=user_query,
+        #     config=types.GenerateContentConfig(
+        #         system_instruction=system_prompt,
+        #         response_mime_type='application/json',
+        #         response_schema=genai.types.Schema(
+        #             type = genai.types.Type.OBJECT,
+        #             properties = {
+        #                 "plotly_module": genai.types.Schema(
+        #                     type = genai.types.Type.STRING,
+        #                 ),
+        #             },
+        #         ),
+        #         tools=None,
+        #         temperature=0.2,
+        #     )
+        # )
+        # plotly_module = response.parsed['plotly_module']
+        # plotly_module = plotly_module.replace('\\n', '\n')
+        # plotly_module = plotly_module.replace('```python', '').replace('```', '')
+        # with open('plotly_module.py', 'w') as f:
+        #     f.write(plotly_module)
         
-        # Extract tokens from second API call
-        tokens = extract_tokens(response.usage_metadata)
-        st.session_state.current_request_cost += calculate_cost(tokens, writer_model)
-        for key in tokens:
-            st.session_state.current_request_tokens[key] += tokens[key]
+        # # Extract tokens from second API call
+        # tokens = extract_tokens(response.usage_metadata)
+        # st.session_state.current_request_cost += calculate_cost(tokens, writer_model)
+        # for key in tokens:
+        #     st.session_state.current_request_tokens[key] += tokens[key]
 
     st.success("✅ 圖表繪製完成！（若有 🐛 就再按一次按鈕或再下一次 prompt 吧）")
     st.session_state.chart_ready = True
     st.session_state.chart_info = chart_info
     st.session_state.chart_id = chart_id
+    st.session_state.options = options
 
 '![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png)✨📈👩🏻‍🔬'
 st.title("MM AI Charting Lab")
@@ -146,7 +157,7 @@ for content in st.session_state.contents:
         st.markdown(content.parts[0].text)
 
 # Chat input
-prompt = st.chat_input("您上傳的CSV（第一欄為日期、第一列為序列名稱），想和什麼MM總經圖表數據一起呈現？試試：美國非農就業", accept_file=True, file_type=["csv"])
+prompt = st.chat_input(f"您上傳的CSV（第一欄為日期、第一列為序列名稱），想和什麼MM總經圖表數據一起呈現？試試：{st.session_state.random_chart}", accept_file=True, file_type=["csv"])
 if prompt and prompt.text:
     user_prompt = prompt.text
     with st.chat_message("user"):
@@ -207,16 +218,18 @@ with st.sidebar:
 # Display chart if ready
 if hasattr(st.session_state, 'chart_ready') and st.session_state.chart_ready:
     with st.expander("檢視 AI 生成的 Plotly 程式碼", expanded=False):
-        with open('plotly_module.py', 'r') as f:
-            import re
-            st.code(re.sub(r'(https?://).*(.)', r'\1🙈🙈🙈🙈\2', f.read()), language='python')
+        # with open('plotly_module.py', 'r') as f:
+        #     import re
+        #     st.code(re.sub(r'(https?://).*(.)', r'\1🙈🙈🙈🙈\2', f.read()), language='python')
+        st.code(st.session_state.options, language='json')
     try:
-        import plotly_module
-        if 'plotly_module' in sys.modules:
-            importlib.reload(sys.modules['plotly_module'])
-        else:
-            import plotly_module
-        plotly_module.main()
+        # import plotly_module
+        # if 'plotly_module' in sys.modules:
+        #     importlib.reload(sys.modules['plotly_module'])
+        # else:
+        #     import plotly_module
+        # plotly_module.main()
+        hct.streamlit_highcharts(st.session_state.options, 1000)
         if st.session_state.chart_info:
             st.markdown('MacroMicro 相關圖表')
             st.link_button(st.session_state.chart_info['name_tc'], 

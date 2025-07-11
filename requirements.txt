@@ -1,6 +1,5 @@
-streamlit==1.46.0
-gradio_client
-google-genai
+streamlit
+streamlit-highcharts
+watchdog
 pandas
-numpy
-plotly
+google-genai
