@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit_highcharts as hct
 import pandas as pd
+import numpy as np
 import json
 import random
 import requests
@@ -18,16 +19,12 @@ if 'random_chart' not in st.session_state:
 from google import genai
 from google.genai import types
 client = genai.Client(api_key=st.secrets['GEMINI_API_KEY'])
-finder_model = 'gemini-2.5-flash'
-writer_model = 'gemini-2.5-pro'
+
 price = {
     'gemini-2.5-flash': {'input': 0.3, 'output': 2.5, 'thinking': 2.5, 'caching': 0.075},
     'gemini-2.5-pro': {'input': 1.25, 'output': 10, 'thinking': 10, 'caching': 0.31},
 }
-
-import system_prompts
-import importlib
-import sys
+model = 'gemini-2.5-flash'
 
 def extract_tokens(usage_metadata):
     d = usage_metadata.model_dump()
@@ -40,16 +37,25 @@ def extract_tokens(usage_metadata):
 def calculate_cost(tokens, model_name):
     return round((tokens.get('prompt_tokens', 0) * price[model_name]['input'] + tokens.get('candidates_tokens', 0) * price[model_name]['output'] + tokens.get('thoughts_tokens', 0) * price[model_name]['thinking'])/1e6, 3)
 
+def convert_data(all_series):
+    converted = []
+    for series in all_series:
+        converted_series = {
+            'name': series['name'],
+            'data': [[date_str, float(value_str)] for date_str, value_str in series['data']]
+        }
+        converted.append(converted_series)
+    return converted
+
 def generate_chart(user_query, has_csv_data=False):
     st.session_state.current_request_cost = 0
     chart_info = None
     chart_id = None
-    retrieval = '- series_api is not available.'
     if user_query:
         # Find relevant chart
         with st.spinner("🔍 正在檢索相關MM圖表..."):
             response = client.models.generate_content(
-                model=finder_model,
+                model=model,
                 contents=user_query,
                 config=types.GenerateContentConfig(
                     system_instruction='Find the most relevant chart id for the user query. Output the id.\n\n' + st.session_state.charts,
@@ -64,7 +70,7 @@ def generate_chart(user_query, has_csv_data=False):
 
             # Extract tokens from first API call
             tokens = extract_tokens(response.usage_metadata)
-            st.session_state.current_request_cost += calculate_cost(tokens, finder_model)
+            st.session_state.current_request_cost += calculate_cost(tokens, model)
             for key in tokens:
                 st.session_state.current_request_tokens[key] += tokens[key]
 
@@ -74,72 +80,71 @@ def generate_chart(user_query, has_csv_data=False):
                 r = requests.get(f"{st.secrets['CHARTS_DATA_API']}/{chart_id}")
                 d = r.json()
                 chart_info = d['data'][f'c:{chart_id}']['info']
-                series_data = d['data'][f'c:{chart_id}']['series']
-                series_names = [series_config['stats'][0]['name_tc'] for series_config in chart_info['chart_config']['seriesConfigs']]
-                series = []
-                for name, data in zip(series_names, series_data):
-                    s = dict()
-                    s['name'] = name
-                    s['data'] = data
-                    series.append(s)
+                all_series_data = d['data'][f'c:{chart_id}']['series']
+                all_series_names = [series_config['stats'][0]['name_tc'] for series_config in chart_info['chart_config']['seriesConfigs']]
+                all_series = []
+                all_series_sample = []
+                for name, data in zip(all_series_names, all_series_data):
+                    series = dict()
+                    series['name'] = name
+                    series['data'] = data
+                    all_series.append(series)
+                    series = dict()
+                    series['name'] = name
+                    if len(data) > 10:
+                        indices = np.linspace(0, len(data)-1, 10, dtype=int)
+                        series['data'] = [data[i] for i in indices]
+                    else:
+                        series['data'] = data
+                    all_series_sample.append(series)
 
-    # # TT, TF, FT : 3 modes
-    # if user_query and has_csv_data:
-    #     system_prompt = system_prompts.api_csv + f"\n\n{json.dumps(retrieval, ensure_ascii=False)}"
-    # elif user_query and not has_csv_data:
-    #     system_prompt = system_prompts.api_only + f"\n\n{json.dumps(retrieval, ensure_ascii=False)}"
-    # else:
-    #     system_prompt = system_prompts.csv_only
+    # TT, TF, FT : 3 modes
+    if user_query and has_csv_data:
+        system_prompt# = system_prompts.api_csv + f"\n\n{json.dumps(retrieval, ensure_ascii=False)}"
+    elif user_query and not has_csv_data:
+        system_prompt = f'Generate Highcharts options based on the user query and the relevant MM chart series sample:\n{json.dumps(all_series_sample, ensure_ascii=False)}'
+    else:
+        system_prompt# = system_prompts.csv_only
 
-    # Generate chart code
-    with st.spinner("✍️ 正在撰寫 Plotly 程式..."):
-        options = {
-            'chart': {
-                'type': 'spline'
-            },
-            'title': {
-                'text': 'Snow depth at Vikjafjellet, Norway'
-            },
-            'series': series,
-        }
-        # response = client.models.generate_content(
-        #     model=writer_model,
-        #     contents=user_query,
-        #     config=types.GenerateContentConfig(
-        #         system_instruction=system_prompt,
-        #         response_mime_type='application/json',
-        #         response_schema=genai.types.Schema(
-        #             type = genai.types.Type.OBJECT,
-        #             properties = {
-        #                 "plotly_module": genai.types.Schema(
-        #                     type = genai.types.Type.STRING,
-        #                 ),
-        #             },
-        #         ),
-        #         tools=None,
-        #         temperature=0.2,
-        #     )
-        # )
-        # plotly_module = response.parsed['plotly_module']
-        # plotly_module = plotly_module.replace('\\n', '\n')
-        # plotly_module = plotly_module.replace('```python', '').replace('```', '')
-        # with open('plotly_module.py', 'w') as f:
-        #     f.write(plotly_module)
+    # Generate Highcharts options
+    with st.status("生成 Highcharts 程式..."):
+        response = client.models.generate_content(
+            model=model,
+            contents=user_query,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type='application/json',
+                response_schema=genai.types.Schema(
+                    type = genai.types.Type.OBJECT,
+                    properties = {
+                        "highcharts_options": genai.types.Schema(
+                            type = genai.types.Type.STRING,
+                        ),
+                    },
+                ),
+                tools=None,
+                temperature=0.2,
+            )
+        )
+        highcharts_options = json.loads(response.parsed['highcharts_options'])
+        # from pprint import pprint
+        # pprint(highcharts_options)
+        del highcharts_options['series']
+        st.code(json.dumps(highcharts_options, indent=4, ensure_ascii=False), language='json')
+        highcharts_options['series'] = convert_data(all_series)
         
-        # # Extract tokens from second API call
-        # tokens = extract_tokens(response.usage_metadata)
-        # st.session_state.current_request_cost += calculate_cost(tokens, writer_model)
-        # for key in tokens:
-        #     st.session_state.current_request_tokens[key] += tokens[key]
+        # Extract tokens from second API call
+        tokens = extract_tokens(response.usage_metadata)
+        st.session_state.current_request_cost += calculate_cost(tokens, model)
+        for key in tokens:
+            st.session_state.current_request_tokens[key] += tokens[key]
 
-    st.success("✅ 圖表繪製完成！（若有 🐛 就再按一次按鈕或再下一次 prompt 吧）")
-    st.session_state.chart_ready = True
-    st.session_state.chart_info = chart_info
-    st.session_state.chart_id = chart_id
-    st.session_state.options = options
+        st.session_state.chart_ready = True
+        st.session_state.chart_info = chart_info
+        st.session_state.chart_id = chart_id
+        st.session_state.options = highcharts_options
 
-'![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png)✨📈👩🏻‍🔬'
-st.title("MM AI Charting Lab")
+st.title("![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png)✨Charting Lab")
 
 # Initialize session state for current request tokens
 if "current_request_tokens" not in st.session_state:
@@ -153,7 +158,7 @@ if 'contents' not in st.session_state:
     st.session_state.df = None
 
 for content in st.session_state.contents:
-    with st.chat_message(content.role):
+    with st.chat_message(content.role, avatar=None if content.role == "user" else '📊'):
         st.markdown(content.parts[0].text)
 
 # Chat input
@@ -194,42 +199,26 @@ if st.session_state.df is not None: # The truth value of a DataFrame is ambiguou
 
 # Display token count and cost in sidebar
 with st.sidebar:
-            st.header("🧠")
-            st.metric('MM Chart finder model', finder_model)
-            st.metric('Plotly Code writer model', writer_model)
-            st.header("✨")
-            col1, col2 = st.columns(2)
+            st.metric('Model', model)
+            '---'
+            col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Input Tokens", st.session_state.current_request_tokens['prompt_tokens'])
-                st.metric("Cached Tokens", st.session_state.current_request_tokens['cached_content_tokens'])
-                st.metric("Tool Use Tokens", st.session_state.current_request_tokens['tool_use_prompt_tokens'])
-            with col2:
                 st.metric("Output Tokens", st.session_state.current_request_tokens['candidates_tokens'])
+            with col2:
+                st.metric("Cached Tokens", st.session_state.current_request_tokens['cached_content_tokens'])
                 st.metric("Thinking Tokens", st.session_state.current_request_tokens['thoughts_tokens'])
+            with col3:
+                st.metric("Tool Use Tokens", st.session_state.current_request_tokens['tool_use_prompt_tokens'])
                 st.metric("Total Tokens", st.session_state.current_request_tokens['total_tokens'])
             '---'
-            col1, col2 = st.columns(2)
-            with col1:
-                pass
-            with col2:
-                st.header("💰")
-                st.metric("Cost", f"${st.session_state.current_request_cost:.3f}")
+            st.metric("Cost", f"${st.session_state.current_request_cost:.3f}")
+            '---'
 
 # Display chart if ready
-if hasattr(st.session_state, 'chart_ready') and st.session_state.chart_ready:
-    with st.expander("檢視 AI 生成的 Plotly 程式碼", expanded=False):
-        # with open('plotly_module.py', 'r') as f:
-        #     import re
-        #     st.code(re.sub(r'(https?://).*(.)', r'\1🙈🙈🙈🙈\2', f.read()), language='python')
-        st.code(st.session_state.options, language='json')
+if 'chart_ready' in st.session_state and st.session_state.chart_ready:
     try:
-        # import plotly_module
-        # if 'plotly_module' in sys.modules:
-        #     importlib.reload(sys.modules['plotly_module'])
-        # else:
-        #     import plotly_module
-        # plotly_module.main()
-        hct.streamlit_highcharts(st.session_state.options, 1000)
+        hct.streamlit_highcharts(st.session_state.options, 600)
         if st.session_state.chart_info:
             st.markdown('MacroMicro 相關圖表')
             st.link_button(st.session_state.chart_info['name_tc'], 

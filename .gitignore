@@ -1,6 +1,3 @@
-plotly_module.py
-uploaded_series.csv
-
 .streamlit/secrets.toml
 
 # Byte-compiled / optimized / DLL files
