@@ -162,15 +162,15 @@ if 'contents' not in st.session_state:
     st.session_state.table_uploaded = None
     st.session_state.chart_generated = None
     st.session_state.chart_info = None
-    st.session_state.key = 0
+    st.session_state.file_name = None
 
 st.title("![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png) ✨ Charting Agent")
 
-def display_table(key):
+def display_table(filename):
     edited_df = st.data_editor(
         st.session_state.table_uploaded, 
         num_rows="dynamic",
-        key=key
+        key=filename
     )
     columns = edited_df.columns.tolist()
     all_series_names = columns[1:]
@@ -198,7 +198,7 @@ def display_table(key):
 
 # display table if uploaded
 if st.session_state.table_uploaded is not None: # The truth value of a DataFrame is ambiguous
-    display_table(st.session_state.key)
+    display_table(st.session_state.file_name)
 
 # display chart if generated
 if st.session_state.chart_generated:
@@ -216,8 +216,9 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
         file = prompt.files[0]
         df = pd.read_csv(file)
         st.session_state.table_uploaded = df
-        st.session_state.key += 1
-        display_table(st.session_state.key)
+        if st.session_state.file_name != file.name:
+            st.session_state.file_name = file.name
+            display_table(st.session_state.file_name)
     if prompt.text:
         with st.chat_message("user"):
             st.markdown(prompt.text)
