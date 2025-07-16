@@ -122,7 +122,7 @@ def generate_highcharts_options(user_query):
             )
         )
         highcharts_options = json.loads(response.parsed['highcharts_options'])
-        print('response.parsed highcharts_options:', highcharts_options)
+        pprint(highcharts_options)
         del highcharts_options['series']
         st.code(json.dumps(highcharts_options, indent=4, ensure_ascii=False), language='json')
     
@@ -162,15 +162,15 @@ if 'contents' not in st.session_state:
     st.session_state.table_uploaded = None
     st.session_state.chart_generated = None
     st.session_state.chart_info = None
+    st.session_state.key = 0
 
 st.title("![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png) ✨ Charting Agent")
 
-# display table if uploaded
-if st.session_state.table_uploaded is not None: # The truth value of a DataFrame is ambiguous
+def display_table(key):
     edited_df = st.data_editor(
         st.session_state.table_uploaded, 
         num_rows="dynamic",
-        key="data_editor"
+        key=key
     )
     columns = edited_df.columns.tolist()
     all_series_names = columns[1:]
@@ -196,14 +196,18 @@ if st.session_state.table_uploaded is not None: # The truth value of a DataFrame
     st.session_state.all_series = all_series
     st.session_state.all_series_sample = all_series_sample
 
+# display table if uploaded
+if st.session_state.table_uploaded is not None: # The truth value of a DataFrame is ambiguous
+    display_table(st.session_state.key)
+
 # display chart if generated
 if st.session_state.chart_generated:
     hct.streamlit_highcharts(st.session_state.chart_generated, 600)
 
 # display chat messages
-for content in st.session_state.contents[-2:]:
-    with st.chat_message(content.role, avatar=None if content.role == "user" else 'favicon-32.png'):
-        st.markdown(content.parts[0].text)
+# for content in st.session_state.contents[-2:]:
+#     with st.chat_message(content.role, avatar=None if content.role == "user" else 'favicon-32.png'):
+#         st.markdown(content.parts[0].text)
 
 # Chat input
 placeholder = f"上傳您的CSV（第一欄日期、第一列序列名稱），和我們的總經圖表數據一起繪製！來都來了，試試 👉 {st.session_state.random_chart}"
@@ -212,17 +216,19 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
         file = prompt.files[0]
         df = pd.read_csv(file)
         st.session_state.table_uploaded = df
-        if not prompt.text:
-            st.rerun()
+        st.session_state.key += 1
+        display_table(st.session_state.key)
     if prompt.text:
         with st.chat_message("user"):
             st.markdown(prompt.text)
         st.session_state.contents.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt.text)]))
+        system_prompt = 'You are MM AI Charting Agent. Your one and only mission is to generate Highcharts for the user query. If the user prompt is not related to charting, you should claim your mission. 回覆中文時使用繁體中文。'
+        system_prompt += '\nThe user has uploaded a CSV file.' if st.session_state.table_uploaded is not None else ''
         response = client.models.generate_content(
             model=model,
             contents=st.session_state.contents[-2:],
             config=types.GenerateContentConfig(
-                system_instruction='You are MM AI Charting Agent. Your one and only mission is to generate Highcharts for the user query. If the user prompt is not related to charting, you should claim your mission. 回覆中文時使用繁體中文。',
+                system_instruction=system_prompt,
                 response_mime_type='text/plain',
                 response_schema=None,
                 tools=[types.Tool(function_declarations=function_declarations)],
@@ -231,15 +237,17 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
         if tool_call := response.candidates[0].content.parts[0].function_call:
             if tool_call.name == "generate_highcharts_options":
                 if highcharts_options := generate_highcharts_options(**tool_call.args):
-                    st.session_state.chart_generated = highcharts_options
+                    st.session_state.chart_generated = highcharts_options.copy()
                     hct.streamlit_highcharts(st.session_state.chart_generated, 600)
+                    del highcharts_options['series']
+                    st.session_state.contents.append(types.Content(role="model", parts=[types.Part.from_text(text=json.dumps(highcharts_options, ensure_ascii=False))]))
                 else:
                     with st.chat_message("ai", avatar='favicon-32.png'):
                         st.markdown(placeholder)
         else:
             with st.chat_message("ai", avatar='favicon-32.png'):
                 st.markdown(response.candidates[0].content.parts[0].text)
-            # st.session_state.contents.append(types.Content(role="assistant", parts=[types.Part.from_text(text=response.candidates[0].content.parts[0].text)]))
+            # st.session_state.contents.append(types.Content(role="model", parts=[types.Part.from_text(text=response.candidates[0].content.parts[0].text)]))
             st.session_state.contents.append(response.candidates[0].content)
 
         # Extract tokens from the 1st API call
@@ -247,8 +255,6 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
         st.session_state.current_request_cost += calculate_cost(tokens, model)
         for key in tokens:
             st.session_state.current_request_tokens[key] += tokens[key]
-
-        st.rerun()
 
 # Display token count and cost in sidebar
 with st.sidebar:
