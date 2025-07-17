@@ -62,7 +62,7 @@ def generate_highcharts_options(user_query):
         model=model,
         contents=user_query,
         config=types.GenerateContentConfig(
-            system_instruction='Find the most relevant MacroMicro chart id for the user query. Output the id.\n\n' + st.session_state.charts,
+            system_instruction='Find the most relevant MacroMicro chart id if the user requests for some statistic. By relevant I mean the statistic type, not the chart type. Output the id or output nothing if the user does not request for some statistic.\n\n' + st.session_state.charts,
             response_mime_type='application/json',
             response_schema=types.Schema(type = genai.types.Type.STRING),
             tools=None,
