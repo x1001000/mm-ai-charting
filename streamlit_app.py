@@ -56,76 +56,87 @@ def convert_to_float(all_series):
         converted.append(converted_series)
     return converted
 
-def generate_highcharts_options(user_query):
+def generate_highcharts_options(chart_of_interest, how_to_chart):
     # 2nd API call
-    response = client.models.generate_content(
-        model=model,
-        contents=user_query,
-        config=types.GenerateContentConfig(
-            system_instruction='Find the most relevant MacroMicro chart id if the user requests for some statistic. By relevant I mean the statistic type, not the chart type. Output the id or output nothing if the user does not request for some statistic.\n\n' + st.session_state.charts,
-            response_mime_type='application/json',
-            response_schema=types.Schema(type = genai.types.Type.STRING),
-            tools=None,
-            temperature=0.2,
-        )
-    )
-    chart_id = response.parsed
-    print('response.parsed chart_id:', chart_id)
-    update_tokens_cost(response)
-
-    if chart_id and chart_id.isdigit():
-        # Retrieve chart data from API
-        r = requests.get(f"{st.secrets['CHARTS_DATA_API']}/{chart_id}")
-        d = r.json()
-        chart_info = d['data'][f'c:{chart_id}']['info']
-        st.session_state.chart_info = chart_info
-        st.session_state.chart_id = chart_id
-        all_series_data = d['data'][f'c:{chart_id}']['series']
-        all_series_names = [series_config['stats'][0]['name_tc'] for series_config in chart_info['chart_config']['seriesConfigs']]
-        all_series = st.session_state.all_series
-        all_series_sample = st.session_state.all_series_sample
-        for name, data in zip(all_series_names, all_series_data):
-            series = dict()
-            series['name'] = name
-            series['data'] = data
-            all_series.append(series)
-            series = dict()
-            series['name'] = name
-            if len(data) > 10:
-                indices = np.linspace(0, len(data)-1, 10, dtype=int)
-                series['data'] = [data[i] for i in indices]
-            else:
-                series['data'] = data
-            all_series_sample.append(series)
-    
-    # 3rd API call
-    if st.session_state.all_series_sample:
-        system_prompt = f'By user request, generate Highcharts options for this retrieval data:\n{json.dumps(st.session_state.all_series_sample, ensure_ascii=False)}'
-        print('# 3rd API call system_prompt:\n', system_prompt)
-    else:
-        return
-
-    with st.status("生成 Highcharts 程式..."):
+    if chart_of_interest:
         response = client.models.generate_content(
             model=model,
-            contents=user_query,
+            contents=chart_of_interest,
             config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
+                system_instruction='Find the most relevant MacroMicro chart id if the user requests for some statistic. By relevant I mean the statistic type, not the chart type. Output the id or output nothing if the user does not request for some statistic.\n\n' + st.session_state.charts,
                 response_mime_type='application/json',
-                response_schema=genai.types.Schema(
-                    type = genai.types.Type.OBJECT,
-                    properties = {
-                        "highcharts_options": genai.types.Schema(
-                            type = genai.types.Type.STRING,
-                        ),
-                    },
-                ),
+                response_schema=types.Schema(type = genai.types.Type.STRING),
                 tools=None,
-                thinking_config=types.ThinkingConfig(thinking_budget=8000),
+                temperature=0.2,
             )
         )
-        highcharts_options = json.loads(response.parsed['highcharts_options'])
-        print('# highcharts_options')
+        chart_id = response.parsed
+        print('response.parsed chart_id:', chart_id)
+        update_tokens_cost(response)
+
+        if chart_id and chart_id.isdigit() and st.session_state.chart_id != chart_id:
+            # Retrieve chart data from API
+            r = requests.get(f"{st.secrets['CHARTS_DATA_API']}/{chart_id}")
+            d = r.json()
+            chart_info = d['data'][f'c:{chart_id}']['info']
+            st.session_state.chart_id = chart_id
+            st.session_state.chart_info = chart_info
+            all_series_data = d['data'][f'c:{chart_id}']['series']
+            all_series_names = [series_config['stats'][0]['name_tc'] for series_config in chart_info['chart_config']['seriesConfigs']]
+            all_series = st.session_state.all_series
+            all_series_sample = st.session_state.all_series_sample
+            for name, data in zip(all_series_names, all_series_data):
+                series = dict()
+                series['name'] = name
+                series['data'] = data
+                all_series.append(series)
+                series = dict()
+                series['name'] = name
+                if len(data) > 10:
+                    indices = np.linspace(0, len(data)-1, 10, dtype=int)
+                    series['data'] = [data[i] for i in indices]
+                else:
+                    series['data'] = data
+                all_series_sample.append(series)
+
+    if not st.session_state.all_series_sample:
+        return
+
+    # 3rd API call
+    system_prompt = f"At the user's request, generate Highcharts options on retrieval data:\n{json.dumps(st.session_state.all_series_sample, ensure_ascii=False)}"
+    print('\n# 3rd API call system_prompt:\n', system_prompt)
+
+    with st.status("生成 Highcharts 程式..."):
+        max_retries = 3
+        for attempt in range(max_retries):
+            response = client.models.generate_content(
+                model=model,
+                contents=how_to_chart if how_to_chart else 'Help me generate Highcharts options for the data provided by the best practices.',
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    response_mime_type='application/json',
+                    response_schema=genai.types.Schema(
+                        type = genai.types.Type.OBJECT,
+                        properties = {
+                            "highcharts_options": genai.types.Schema(
+                                type = genai.types.Type.STRING,
+                            ),
+                        },
+                    ),
+                    tools=None,
+                    thinking_config=types.ThinkingConfig(thinking_budget=4000),
+                )
+            )
+            try:
+                highcharts_options = json.loads(response.parsed['highcharts_options'])
+                break
+            except (json.JSONDecodeError, KeyError) as e:
+                if attempt == max_retries - 1:
+                    st.error(f"Error parsing Highcharts options after {max_retries} attempts: {e}")
+                    return None
+                st.warning(f"Attempt {attempt + 1} failed, retrying... Error: {e}")
+                update_tokens_cost(response)
+        print('\n# highcharts_options')
         pprint(highcharts_options)
         del highcharts_options['series']
         st.code(json.dumps(highcharts_options, indent=4, ensure_ascii=False), language='json')
@@ -138,13 +149,14 @@ def generate_highcharts_options(user_query):
 function_declarations = [
     types.FunctionDeclaration(
         name="generate_highcharts_options",
-        description="Generate Highcharts options based on user query and retrieval data.",
+        description="Generate Highcharts options at the user's request about chart of interest and/or how to chart, on retrieval data.",
         parameters=types.Schema(
             type=genai.types.Type.OBJECT,
             properties={
-                "user_query": genai.types.Schema(type=genai.types.Type.STRING, description="The user's query about what to chart and/or how to chart."),
+                "chart_of_interest": genai.types.Schema(type=genai.types.Type.STRING, description="The user's request about chart of interest."),
+                "how_to_chart": genai.types.Schema(type=genai.types.Type.STRING, description="The user's request about how to chart."),
             },
-            required=["user_query"]
+            # required=["chart_of_interest", "how_to_chart"],
         )
     ),
 ]
@@ -160,6 +172,7 @@ if 'contents' not in st.session_state:
     st.session_state.contents = []
     st.session_state.table_name = None
     st.session_state.table_uploaded = None
+    st.session_state.chart_id = None
     st.session_state.chart_info = None
     st.session_state.chart_generated = None
 
@@ -218,15 +231,16 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
         if st.session_state.table_name != file.name:
             st.session_state.table_name = file.name
             display_table(st.session_state.table_name)
-            st.session_state.contents.append(types.Content(role="model", parts=[types.Part.from_text(text='Table uploaded successfully!')]))
+            st.session_state.contents.append(types.Content(role="model", parts=[types.Part.from_text(text='The table for AI charting is uploaded successfully!')]))
     if prompt.text:
         with st.chat_message("user"):
             st.markdown(prompt.text)
         st.session_state.contents.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt.text)]))
         
         # 1st API call
-        system_prompt = 'You are MM AI Charting Agent. Your one and only mission is to generate Highcharts for the user query. If the user prompt is not related to charting, you should claim your mission. 回覆中文時使用繁體中文。'
-        print('# 1st API call system_prompt:\n', system_prompt)
+        system_prompt = "You are MM AI Charting Agent. Your one and only mission is to generate Highcharts at the user's request. If the user prompt is not related to charting, you should claim your mission. 回覆中文時使用繁體中文。"
+        print('\n# 1st API call system_prompt:\n', system_prompt)
+        pprint(st.session_state.contents[-2:])
         response = client.models.generate_content(
             model=model,
             contents=st.session_state.contents[-2:],
@@ -240,13 +254,13 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
         )
         if tool_call := response.candidates[0].content.parts[0].function_call:
             if tool_call.name == "generate_highcharts_options":
-                print('# tool_call.args')
+                print('\n# tool_call.args')
                 pprint(tool_call.args)
-                if highcharts_options := generate_highcharts_options(**tool_call.args):
-                    st.session_state.chart_generated = highcharts_options.copy()
+                chart_of_interest = tool_call.args.get('chart_of_interest')
+                how_to_chart = tool_call.args.get('how_to_chart')
+                if highcharts_options := generate_highcharts_options(chart_of_interest, how_to_chart):
+                    st.session_state.chart_generated = highcharts_options
                     hct.streamlit_highcharts(st.session_state.chart_generated, 600)
-                    del highcharts_options['series']
-                    st.session_state.contents.append(types.Content(role="model", parts=[types.Part.from_text(text=json.dumps(highcharts_options, ensure_ascii=False))]))
                 else:
                     with st.chat_message("ai", avatar='favicon-32.png'):
                         st.markdown(placeholder)
@@ -254,7 +268,7 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
             with st.chat_message("ai", avatar='favicon-32.png'):
                 st.markdown(response.candidates[0].content.parts[0].text)
             # st.session_state.contents.append(types.Content(role="model", parts=[types.Part.from_text(text=response.candidates[0].content.parts[0].text)]))
-            st.session_state.contents.append(response.candidates[0].content)
+            # st.session_state.contents.append(response.candidates[0].content)
         update_tokens_cost(response)
 
 # Display token count and cost in sidebar
