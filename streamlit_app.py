@@ -40,7 +40,7 @@ def extract_tokens(usage_metadata):
 def calculate_cost(tokens, model_name):
     return round((tokens.get('prompt_tokens', 0) * price[model_name]['input'] + tokens.get('candidates_tokens', 0) * price[model_name]['output'] + tokens.get('thoughts_tokens', 0) * price[model_name]['thinking'])/1e6, 3)
 
-def convert_data(all_series):
+def convert_to_float(all_series):
     converted = []
     for series in all_series:
         converted_series = {
@@ -132,7 +132,7 @@ def generate_highcharts_options(user_query):
     for key in tokens:
         st.session_state.current_request_tokens[key] += tokens[key]
 
-    highcharts_options['series'] = convert_data(all_series)
+    highcharts_options['series'] = convert_to_float(all_series)
     return highcharts_options
 
 # Function declarations for tool use
@@ -159,10 +159,10 @@ if "current_request_cost" not in st.session_state:
 # initialize
 if 'contents' not in st.session_state:
     st.session_state.contents = []
+    st.session_state.table_name = None
     st.session_state.table_uploaded = None
-    st.session_state.chart_generated = None
     st.session_state.chart_info = None
-    st.session_state.file_name = None
+    st.session_state.chart_generated = None
 
 st.title("Charting Agent")
 
@@ -198,7 +198,7 @@ def display_table(filename):
 
 # display table if uploaded
 if st.session_state.table_uploaded is not None: # The truth value of a DataFrame is ambiguous
-    display_table(st.session_state.file_name)
+    display_table(st.session_state.table_name)
 
 # display chart if generated
 if st.session_state.chart_generated:
@@ -216,9 +216,9 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
         file = prompt.files[0]
         df = pd.read_csv(file)
         st.session_state.table_uploaded = df
-        if st.session_state.file_name != file.name:
-            st.session_state.file_name = file.name
-            display_table(st.session_state.file_name)
+        if st.session_state.table_name != file.name:
+            st.session_state.table_name = file.name
+            display_table(st.session_state.table_name)
     if prompt.text:
         with st.chat_message("user"):
             st.markdown(prompt.text)
