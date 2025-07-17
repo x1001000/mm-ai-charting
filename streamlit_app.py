@@ -40,6 +40,12 @@ def extract_tokens(usage_metadata):
 def calculate_cost(tokens, model_name):
     return round((tokens.get('prompt_tokens', 0) * price[model_name]['input'] + tokens.get('candidates_tokens', 0) * price[model_name]['output'] + tokens.get('thoughts_tokens', 0) * price[model_name]['thinking'])/1e6, 3)
 
+def update_tokens_cost(response):
+    tokens = extract_tokens(response.usage_metadata)
+    for key in tokens:
+        st.session_state.current_request_tokens[key] += tokens[key]
+    st.session_state.current_request_cost += calculate_cost(tokens, response.model_version)
+
 def convert_to_float(all_series):
     converted = []
     for series in all_series:
@@ -51,6 +57,7 @@ def convert_to_float(all_series):
     return converted
 
 def generate_highcharts_options(user_query):
+    # 2nd API call
     response = client.models.generate_content(
         model=model,
         contents=user_query,
@@ -64,12 +71,7 @@ def generate_highcharts_options(user_query):
     )
     chart_id = response.parsed
     print('response.parsed chart_id:', chart_id)
-
-    # Extract tokens from the 2nd API call
-    tokens = extract_tokens(response.usage_metadata)
-    st.session_state.current_request_cost += calculate_cost(tokens, model)
-    for key in tokens:
-        st.session_state.current_request_tokens[key] += tokens[key]
+    update_tokens_cost(response)
 
     if chart_id and chart_id.isdigit():
         # Retrieve chart data from API
@@ -95,13 +97,14 @@ def generate_highcharts_options(user_query):
             else:
                 series['data'] = data
             all_series_sample.append(series)
+    
+    # 3rd API call
     if st.session_state.all_series_sample:
         system_prompt = f'By user request, generate Highcharts options for this retrieval data:\n{json.dumps(st.session_state.all_series_sample, ensure_ascii=False)}'
-        print('system_prompt:', system_prompt)
+        print('# 3rd API call system_prompt:\n', system_prompt)
     else:
         return
 
-    # Generate Highcharts options
     with st.status("生成 Highcharts 程式..."):
         response = client.models.generate_content(
             model=model,
@@ -118,21 +121,17 @@ def generate_highcharts_options(user_query):
                     },
                 ),
                 tools=None,
-                temperature=0.2,
+                thinking_config=types.ThinkingConfig(thinking_budget=8000),
             )
         )
         highcharts_options = json.loads(response.parsed['highcharts_options'])
+        print('# highcharts_options')
         pprint(highcharts_options)
         del highcharts_options['series']
         st.code(json.dumps(highcharts_options, indent=4, ensure_ascii=False), language='json')
-    
-    # Extract tokens from the 3rd API call
-    tokens = extract_tokens(response.usage_metadata)
-    st.session_state.current_request_cost += calculate_cost(tokens, model)
-    for key in tokens:
-        st.session_state.current_request_tokens[key] += tokens[key]
+    update_tokens_cost(response)
 
-    highcharts_options['series'] = convert_to_float(all_series)
+    highcharts_options['series'] = convert_to_float(st.session_state.all_series)
     return highcharts_options
 
 # Function declarations for tool use
@@ -164,7 +163,7 @@ if 'contents' not in st.session_state:
     st.session_state.chart_info = None
     st.session_state.chart_generated = None
 
-st.title("Charting Agent")
+st.title("MM AI Charting Agent")
 
 def display_table(filename):
     edited_df = st.data_editor(
@@ -219,12 +218,15 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
         if st.session_state.table_name != file.name:
             st.session_state.table_name = file.name
             display_table(st.session_state.table_name)
+            st.session_state.contents.append(types.Content(role="model", parts=[types.Part.from_text(text='Table uploaded successfully!')]))
     if prompt.text:
         with st.chat_message("user"):
             st.markdown(prompt.text)
         st.session_state.contents.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt.text)]))
+        
+        # 1st API call
         system_prompt = 'You are MM AI Charting Agent. Your one and only mission is to generate Highcharts for the user query. If the user prompt is not related to charting, you should claim your mission. 回覆中文時使用繁體中文。'
-        system_prompt += '\nThe user has uploaded a CSV file.' if st.session_state.table_uploaded is not None else ''
+        print('# 1st API call system_prompt:\n', system_prompt)
         response = client.models.generate_content(
             model=model,
             contents=st.session_state.contents[-2:],
@@ -233,10 +235,13 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
                 response_mime_type='text/plain',
                 response_schema=None,
                 tools=[types.Tool(function_declarations=function_declarations)],
+                temperature=0.2,
             )
         )
         if tool_call := response.candidates[0].content.parts[0].function_call:
             if tool_call.name == "generate_highcharts_options":
+                print('# tool_call.args')
+                pprint(tool_call.args)
                 if highcharts_options := generate_highcharts_options(**tool_call.args):
                     st.session_state.chart_generated = highcharts_options.copy()
                     hct.streamlit_highcharts(st.session_state.chart_generated, 600)
@@ -250,12 +255,7 @@ if prompt := st.chat_input(placeholder, accept_file=True, file_type=["csv"]):
                 st.markdown(response.candidates[0].content.parts[0].text)
             # st.session_state.contents.append(types.Content(role="model", parts=[types.Part.from_text(text=response.candidates[0].content.parts[0].text)]))
             st.session_state.contents.append(response.candidates[0].content)
-
-        # Extract tokens from the 1st API call
-        tokens = extract_tokens(response.usage_metadata)
-        st.session_state.current_request_cost += calculate_cost(tokens, model)
-        for key in tokens:
-            st.session_state.current_request_tokens[key] += tokens[key]
+        update_tokens_cost(response)
 
 # Display token count and cost in sidebar
 with st.sidebar:
