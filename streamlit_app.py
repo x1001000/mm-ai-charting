@@ -1,4 +1,5 @@
 import streamlit as st
+st.set_page_config(layout="wide")
 import streamlit_highcharts as hct
 import pandas as pd
 import numpy as np
@@ -176,7 +177,7 @@ if 'contents' not in st.session_state:
     st.session_state.chart_info = None
     st.session_state.chart_generated = None
 
-st.title("MM AI Charting Agent")
+st.title("MM AI Charting")
 
 def display_table(filename):
     edited_df = st.data_editor(

@@ -1,5 +1,5 @@
 streamlit
-streamlit-highcharts
+git+https://github.com/x1001000/streamlit_highcharts.git
 watchdog
 pandas
 google-genai
