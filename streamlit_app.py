@@ -164,7 +164,7 @@ if 'contents' not in st.session_state:
     st.session_state.chart_info = None
     st.session_state.file_name = None
 
-st.title("![](https://cdn.macromicro.me/assets/img/favicons/favicon-32.png) ✨ Charting Agent")
+st.title("Charting Agent")
 
 def display_table(filename):
     edited_df = st.data_editor(
