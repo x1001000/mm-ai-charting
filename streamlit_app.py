@@ -104,8 +104,18 @@ def generate_highcharts_options(chart_of_interest, how_to_chart):
         return
 
     # 3rd API call
-    system_prompt = f"At the user's request, generate Highcharts options on retrieval data:\n{json.dumps(st.session_state.all_series_sample, ensure_ascii=False)}"
-    print('\n# 3rd API call system_prompt:\n', system_prompt)
+    # Load Highcharts documentation
+    with open('x1001000-highcharts.txt', 'r', encoding='utf-8') as f:
+        highcharts_docs = f.read()
+    
+    system_prompt = (
+        f"# At the user's request, generate Highcharts options on retrieval data:\n"
+        f"{json.dumps(st.session_state.all_series_sample, ensure_ascii=False)}\n\n"
+        f"# Highcharts Documentation:\n"
+        f"{highcharts_docs}"
+        "# 生成中文名稱時使用繁體中文。\n"
+    )
+    # print('\n# 3rd API call system_prompt:\n', system_prompt)
 
     with st.status("生成 Highcharts 程式..."):
         max_retries = 3
